@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sampler Conchas Pro</title>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: sans-serif;
+}
+
+/* Fondo */
+#container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background-image: url("https://raw.githubusercontent.com/shanqarani/SAMPLER/main/FONDO1.jpg");
+  background-size: cover;
+  background-position: center;
+}
+
+/* Conchas */
+.shell {
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  cursor: pointer;
+  transition: transform 0.08s ease, filter 0.08s ease;
+  filter: drop-shadow(0px 10px 8px rgba(0,0,0,0.6));
+}
+
+.shell.active {
+  transform: translateY(10px) scale(0.97);
+  filter: drop-shadow(0px 3px 3px rgba(0,0,0,0.8));
+}
+
+/* Posiciones */
+#s1 { left: 18%; top: 60%; background-image: url("https://raw.githubusercontent.com/shanqarani/SAMPLER/main/1.png"); }
+#s2 { left: 35%; top: 65%; background-image: url("https://raw.githubusercontent.com/shanqarani/SAMPLER/main/2.png"); }
+#s3 { left: 52%; top: 60%; background-image: url("https://raw.githubusercontent.com/shanqarani/SAMPLER/main/3.png"); }
+#s4 { left: 68%; top: 65%; background-image: url("https://raw.githubusercontent.com/shanqarani/SAMPLER/main/4.png"); }
+#s5 { left: 30%; top: 42%; background-image: url("https://raw.githubusercontent.com/shanqarani/SAMPLER/main/5.png"); }
+#s6 { left: 58%; top: 42%; background-image: url("https://raw.githubusercontent.com/shanqarani/SAMPLER/main/6.png"); }
+
+/* PANEL */
+#panel {
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  width: 160px;
+  color: white;
+  text-align: center;
+}
+
+/* KNOB estilo Ableton-like */
+.knob {
+  width: 90px;
+  height: 90px;
+  margin: 20px auto;
+  position: relative;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #e8d8b0, #c2a97a);
+  box-shadow: inset -3px -3px 6px rgba(0,0,0,0.4),
+              inset 3px 3px 6px rgba(255,255,255,0.2),
+              0 4px 10px rgba(0,0,0,0.5);
+  cursor: pointer;
+}
+
+/* arco */
+.knob canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* etiqueta */
+.label {
+  font-size: 12px;
+  margin-top: -10px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="container">
+
+  <!-- Conchas -->
+  <div class="shell" id="s1" data-key="A"></div>
+  <div class="shell" id="s2" data-key="S"></div>
+  <div class="shell" id="s3" data-key="D"></div>
+  <div class="shell" id="s4" data-key="J"></div>
+  <div class="shell" id="s5" data-key="K"></div>
+  <div class="shell" id="s6" data-key="L"></div>
+
+  <!-- Panel -->
+  <div id="panel">
+    <div class="knob" id="attackKnob"></div>
+    <div class="label">ATTACK</div>
+
+    <div class="knob" id="releaseKnob"></div>
+    <div class="label">RELEASE</div>
+
+    <div class="knob" id="pitchKnob"></div>
+    <div class="label">PITCH</div>
+  </div>
+
+</div>
+
+<script>
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+const soundMap = {
+  A: "1.mp3", S: "2.mp3", D: "3.mp3",
+  J: "4.mp3", K: "5.mp3", L: "6.mp3"
+};
+
+for (let k in soundMap) {
+  soundMap[k] = "https://raw.githubusercontent.com/shanqarani/SAMPLER/main/" + soundMap[k];
+}
+
+const buffers = {};
+const active = {};
+
+let attackVal = 1;
+let releaseVal = 3;
+let pitchVal = 5;
+
+// carga
+async function load() {
+  for (let k in soundMap) {
+    const res = await fetch(soundMap[k]);
+    const arr = await res.arrayBuffer();
+    buffers[k] = await ctx.decodeAudioData(arr);
+  }
+}
+load();
+
+// mapping
+const mapAttack = v => v * 0.02;
+const mapRelease = v => v * 0.1;
+
+// pitch exponencial (musical)
+const mapPitch = v => Math.pow(2, (v - 5) / 5);
+
+// PLAY
+function play(key) {
+  if (!buffers[key] || active[key]) return;
+
+  const src = ctx.createBufferSource();
+  src.buffer = buffers[key];
+  src.loop = true;
+  src.playbackRate.value = mapPitch(pitchVal);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, ctx.currentTime);
+
+  src.connect(gain).connect(ctx.destination);
+
+  gain.gain.linearRampToValueAtTime(1, ctx.currentTime + mapAttack(attackVal));
+
+  src.start();
+
+  active[key] = { src, gain };
+
+  setVisual(key, true);
+}
+
+// STOP
+function stop(key) {
+  const n = active[key];
+  if (!n) return;
+
+  const now = ctx.currentTime;
+
+  n.gain.gain.cancelScheduledValues(now);
+  n.gain.gain.setValueAtTime(n.gain.gain.value, now);
+  n.gain.gain.linearRampToValueAtTime(0, now + mapRelease(releaseVal));
+
+  n.src.stop(now + mapRelease(releaseVal));
+
+  delete active[key];
+
+  setVisual(key, false);
+}
+
+// VISUAL
+function setVisual(key, state) {
+  document.querySelectorAll(".shell").forEach(el => {
+    if (el.dataset.key === key) {
+      el.classList.toggle("active", state);
+    }
+  });
+}
+
+// INPUT
+document.querySelectorAll(".shell").forEach(el => {
+  const k = el.dataset.key;
+  el.addEventListener("pointerdown", () => play(k));
+  el.addEventListener("pointerup", () => stop(k));
+  el.addEventListener("pointerleave", () => stop(k));
+});
+
+document.addEventListener("keydown", e => {
+  const k = e.key.toUpperCase();
+  if (buffers[k]) play(k);
+});
+
+document.addEventListener("keyup", e => {
+  const k = e.key.toUpperCase();
+  if (buffers[k]) stop(k);
+});
+
+// --- KNOB ENGINE ---
+function createKnob(el, getVal, setVal) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 90;
+  canvas.height = 90;
+  el.appendChild(canvas);
+
+  const g = canvas.getContext("2d");
+
+  function draw() {
+    const v = getVal();
+    g.clearRect(0,0,90,90);
+
+    const angle = (v - 1) / 9 * 270 - 135;
+
+    g.beginPath();
+    g.arc(45,45,35, (-135*Math.PI/180), (angle*Math.PI/180));
+    g.strokeStyle = "white";
+    g.lineWidth = 4;
+    g.stroke();
+  }
+
+  let dragging = false;
+
+  el.addEventListener("pointerdown", () => dragging = true);
+  window.addEventListener("pointerup", () => dragging = false);
+
+  window.addEventListener("pointermove", e => {
+    if (!dragging) return;
+    let v = getVal();
+    v += e.movementY * -0.05;
+    v = Math.max(1, Math.min(10, v));
+    setVal(v);
+    draw();
+  });
+
+  draw();
+}
+
+// init knobs
+createKnob(document.getElementById("attackKnob"), () => attackVal, v => attackVal = v);
+createKnob(document.getElementById("releaseKnob"), () => releaseVal, v => releaseVal = v);
+createKnob(document.getElementById("pitchKnob"), () => pitchVal, v => pitchVal = v);
+
+</script>
+
+</body>
+</html>
